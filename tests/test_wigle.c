@@ -47,6 +47,15 @@ int main(void) {
     assert(strstr(csv, "MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n") != NULL);
     assert(strstr(csv, "A4:2B:B0:11:22:33,LAFIA_HOME_2.4G,[WPA2-PSK-CCMP][ESS],2026-11-02 05:30:00,1,-46,") != NULL);
 
+    /* Verify short UI labels and session reset */
+    assert(strcmp(wg_auth_short_label(WG_AUTH_WPA2_AES), "WPA2") == 0);
+    assert(strcmp(wg_auth_short_label(WG_AUTH_3DS_UDS), "3DS-UDS") == 0);
+    char ts[24];
+    wg_format_current_utc(ts);
+    assert(strlen(ts) == 19);
+    assert(wg_reset_session(&st));
+    assert(st.ap_count == 0 && st.csv_rows_written == 0);
+
     printf("PASS: test_wigle all WiGLE-Wifi-1.4 CSV format, 2.4GHz channel, and sweep checks succeeded.\n");
     return 0;
 }

@@ -52,8 +52,17 @@ typedef struct {
 /* Map 3DS security mode to exact WiGLE v1.4 AuthMode capability string (e.g. "[WPA2-PSK-CCMP][ESS]") */
 const char *wg_auth_to_wigle_caps(wg_auth_mode_t auth);
 
+/* Short UI badge for security mode (e.g. "WPA2", "OPEN", "WEP", "UDS") */
+const char *wg_auth_short_label(wg_auth_mode_t auth);
+
+/* Format current UTC or system clock into "YYYY-MM-DD HH:MM:SS" */
+void wg_format_current_utc(char out_ts[24]);
+
 /* Map 2.4 GHz channel (1..14) to center frequency in MHz (2412..2484) */
 int wg_channel_to_freq_mhz(int channel);
+
+/* Clear all in-memory APs and start a fresh WiGLE-Wifi-1.4 CSV session file */
+bool wg_reset_session(wg_wardrive_state_t *st);
 
 /* Initialize wardriving state and create WiGLE-Wifi-1.4 pre-header + column header CSV if absent */
 bool wg_init(wg_wardrive_state_t *st, const char *sd_root, const char *session_name);

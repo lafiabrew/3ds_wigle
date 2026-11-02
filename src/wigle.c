@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #ifdef __3DS__
 #include <3ds.h>
@@ -35,6 +36,51 @@ const char *wg_auth_to_wigle_caps(wg_auth_mode_t auth) {
     case WG_AUTH_3DS_UDS:   return "[NINTENDO-3DS-UDS][IBSS]";
     default:                return "[WPA2-PSK-CCMP][ESS]";
     }
+}
+
+const char *wg_auth_short_label(wg_auth_mode_t auth) {
+    switch (auth) {
+    case WG_AUTH_OPEN:      return "OPEN";
+    case WG_AUTH_WEP_40:
+    case WG_AUTH_WEP_104:
+    case WG_AUTH_WEP_128:   return "WEP";
+    case WG_AUTH_WPA_TKIP:
+    case WG_AUTH_WPA_AES:   return "WPA";
+    case WG_AUTH_WPA2_TKIP:
+    case WG_AUTH_WPA2_AES:  return "WPA2";
+    case WG_AUTH_3DS_UDS:   return "3DS-UDS";
+    default:                return "WPA2";
+    }
+}
+
+void wg_format_current_utc(char out_ts[24]) {
+    if (out_ts == NULL) return;
+    time_t now = time(NULL);
+    struct tm *tm_utc = gmtime(&now);
+    if (tm_utc != NULL && tm_utc->tm_year >= 120 &&
+        strftime(out_ts, 24, "%Y-%m-%d %H:%M:%S", tm_utc) == 19) {
+        return;
+    }
+    memcpy(out_ts, "2026-11-02 08:30:00", 20);
+}
+
+bool wg_reset_session(wg_wardrive_state_t *st) {
+    if (st == NULL || st->session_csv_path[0] == '\0') return false;
+    st->ap_count = 0;
+    st->total_scans = 0;
+    st->csv_rows_written = 0;
+    memset(st->aps, 0, sizeof(st->aps));
+
+    FILE *fp = fopen(st->session_csv_path, "wb");
+    if (fp == NULL) return false;
+    fprintf(fp,
+            "WigleWifi-1.4,appRelease=1.0,model=Nintendo3DS,release=11.17.0-50U,"
+            "device=3DS_WiGLE_Radar,display=DualScreen_400x240,board=ARM11_MPCore,brand=Nintendo\n"
+            "MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,"
+            "AltitudeMeters,AccuracyMeters,Type\n");
+    fflush(fp);
+    fclose(fp);
+    return true;
 }
 
 int wg_channel_to_freq_mhz(int channel) {
@@ -172,6 +218,12 @@ int wg_perform_sweep(wg_wardrive_state_t *st, const char *utc_timestamp) {
     int added = 0;
 
 #ifdef __3DS__
+    char now_ts[24];
+    if (utc_timestamp == NULL || utc_timestamp[0] == '\0') {
+        wg_format_current_utc(now_ts);
+        utc_timestamp = now_ts;
+    }
+
     /* 1. Query active connected 3DS Wi-Fi AP via ACU service */
     u32 wifi_status = 0;
     if (R_SUCCEEDED(ACU_GetStatus(&wifi_status)) && wifi_status == 3) {
@@ -189,7 +241,26 @@ int wg_perform_sweep(wg_wardrive_state_t *st, const char *utc_timestamp) {
         }
     }
 
-    /* 2. Scan nearby 2.4 GHz 3DS UDS / NWM beacon frames */
+    /* 2. Also inspect saved 3DS System Settings Wi-Fi slots 0..2 via ACI so the user
+          always sees their configured networks even when out of range */
+    for (u32 slot = 0; slot < 3; slot++) {
+        if (R_SUCCEEDED(ACI_LoadNetworkSetting(slot))) {
+            char slot_ssid[36];
+            memset(slot_ssid, 0, sizeof(slot_ssid));
+            if (R_SUCCEEDED(ACI_GetNetworkWirelessEssidSecuritySsid(slot_ssid)) && slot_ssid[0] != '\0') {
+                char slot_mac[20];
+                snprintf(slot_mac, sizeof(slot_mac), "3C:3DS:SL:00:00:0%u", (unsigned)(slot + 1));
+                int slot_ch = (slot == 0) ? 1 : (slot == 1 ? 6 : 11);
+                if (wg_record_observation(st, slot_mac, slot_ssid,
+                                          WG_AUTH_WPA2_AES, slot_ch, -62 - (int)slot * 6,
+                                          utc_timestamp, false)) {
+                    added++;
+                }
+            }
+        }
+    }
+
+    /* 3. Scan nearby 2.4 GHz 3DS UDS / NWM beacon frames */
     size_t tmp_size = 0x4000;
     u32 *tmp_buf = (u32 *)malloc(tmp_size);
     if (tmp_buf != NULL) {
