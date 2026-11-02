@@ -105,6 +105,93 @@ static void sanitize_csv_field(const char *in, char *out, size_t cap) {
     out[oi] = '\0';
 }
 
+static void extract_json_str(const char *json, const char *key, char *out, size_t cap) {
+    if (out == NULL || cap == 0) return;
+    out[0] = '\0';
+    if (json == NULL || key == NULL) return;
+    char pat[64];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (p == NULL) return;
+    p = strchr(p + strlen(pat), ':');
+    if (p == NULL) return;
+    p = strchr(p, '"');
+    if (p == NULL) return;
+    p++;
+    size_t i = 0;
+    while (p[i] != '\0' && p[i] != '"' && i + 1 < cap) {
+        out[i] = p[i];
+        i++;
+    }
+    out[i] = '\0';
+}
+
+static uint64_t extract_json_u64(const char *json, const char *key) {
+    if (json == NULL || key == NULL) return 0;
+    char pat[64];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (p == NULL) return 0;
+    p = strchr(p + strlen(pat), ':');
+    if (p == NULL) return 0;
+    p++;
+    while (*p == ' ' || *p == '\t') p++;
+    return (uint64_t)strtoull(p, NULL, 10);
+}
+
+bool wg_load_account(wg_wardrive_state_t *st) {
+    if (st == NULL || st->account_json_path[0] == '\0') return false;
+    FILE *fp = fopen(st->account_json_path, "rb");
+    if (fp == NULL) return false;
+    char buf[2048];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+    fclose(fp);
+    if (n == 0) return false;
+    buf[n] = '\0';
+
+    extract_json_str(buf, "username", st->account.username, sizeof(st->account.username));
+    extract_json_str(buf, "api_name", st->account.api_name, sizeof(st->account.api_name));
+    extract_json_str(buf, "last_sync_utc", st->account.last_sync_utc, sizeof(st->account.last_sync_utc));
+    st->account.rank = (uint32_t)extract_json_u64(buf, "rank");
+    st->account.month_rank = (uint32_t)extract_json_u64(buf, "month_rank");
+    st->account.discovered_wifi = extract_json_u64(buf, "discovered_wifi");
+    st->account.total_uploads = (uint32_t)extract_json_u64(buf, "total_uploads");
+    st->account.configured = (st->account.username[0] != '\0');
+    return st->account.configured;
+}
+
+bool wg_save_account(const wg_wardrive_state_t *st) {
+    if (st == NULL || st->account_json_path[0] == '\0') return false;
+    char tmp_path[WG_PATH_MAX + 80];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", st->account_json_path);
+    FILE *fp = fopen(tmp_path, "wb");
+    if (fp == NULL) return false;
+    fprintf(fp,
+            "{\n"
+            "  \"username\": \"%s\",\n"
+            "  \"api_name\": \"%s\",\n"
+            "  \"rank\": %u,\n"
+            "  \"month_rank\": %u,\n"
+            "  \"discovered_wifi\": %llu,\n"
+            "  \"total_uploads\": %u,\n"
+            "  \"last_sync_utc\": \"%s\"\n"
+            "}\n",
+            st->account.username[0] ? st->account.username : "UNCONFIGURED",
+            st->account.api_name[0] ? st->account.api_name : "AID_SET_IN_WIGLE_SYNC",
+            (unsigned)st->account.rank,
+            (unsigned)st->account.month_rank,
+            (unsigned long long)st->account.discovered_wifi,
+            (unsigned)st->account.total_uploads,
+            st->account.last_sync_utc[0] ? st->account.last_sync_utc : "NEVER");
+    fflush(fp);
+    fclose(fp);
+    if (rename(tmp_path, st->account_json_path) != 0) {
+        remove(tmp_path);
+        return false;
+    }
+    return true;
+}
+
 bool wg_init(wg_wardrive_state_t *st, const char *sd_root, const char *session_name) {
     if (st == NULL) return false;
     memset(st, 0, sizeof(*st));
@@ -124,6 +211,15 @@ bool wg_init(wg_wardrive_state_t *st, const char *sd_root, const char *session_n
     snprintf(st->session_csv_path, sizeof(st->session_csv_path),
              "%s/%s", wigle_dir,
              (session_name != NULL && session_name[0] != '\0') ? session_name : "wigle_3ds_session.csv");
+    snprintf(st->account_json_path, sizeof(st->account_json_path),
+             "%s/wigle_account.json", wigle_dir);
+    if (!wg_load_account(st)) {
+        snprintf(st->account.username, sizeof(st->account.username), "LAFIABREW");
+        snprintf(st->account.api_name, sizeof(st->account.api_name), "AID_CONFIGURE_ON_PC");
+        snprintf(st->account.last_sync_utc, sizeof(st->account.last_sync_utc), "READY_FOR_SYNC");
+        st->account.configured = true;
+        wg_save_account(st);
+    }
 
     /* Write official WiGLE-Wifi-1.4 2-line header if file does not exist yet */
     struct stat sb;

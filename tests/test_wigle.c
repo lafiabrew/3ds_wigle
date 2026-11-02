@@ -47,15 +47,38 @@ int main(void) {
     assert(strstr(csv, "MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n") != NULL);
     assert(strstr(csv, "A4:2B:B0:11:22:33,LAFIA_HOME_2.4G,[WPA2-PSK-CCMP][ESS],2026-11-02 05:30:00,1,-46,") != NULL);
 
-    /* Verify short UI labels and session reset */
+    /* Verify short UI labels, account JSON round-trip, and session reset */
     assert(strcmp(wg_auth_short_label(WG_AUTH_WPA2_AES), "WPA2") == 0);
     assert(strcmp(wg_auth_short_label(WG_AUTH_3DS_UDS), "3DS-UDS") == 0);
     char ts[24];
     wg_format_current_utc(ts);
     assert(strlen(ts) == 19);
+
+    snprintf(st.account.username, sizeof(st.account.username), "SCHWARTZKAMEL");
+    snprintf(st.account.api_name, sizeof(st.account.api_name), "AID_TEST_12345");
+    st.account.rank = 420u;
+    st.account.month_rank = 19u;
+    st.account.discovered_wifi = 12345ULL;
+    st.account.total_uploads = 17u;
+    snprintf(st.account.last_sync_utc, sizeof(st.account.last_sync_utc), "2026-11-02 09:15:00");
+    assert(wg_save_account(&st));
+
+    memset(&st.account, 0, sizeof(st.account));
+    assert(wg_load_account(&st));
+    assert(strcmp(st.account.username, "SCHWARTZKAMEL") == 0);
+    assert(st.account.rank == 420u);
+    assert(st.account.discovered_wifi == 12345ULL);
+
     assert(wg_reset_session(&st));
     assert(st.ap_count == 0 && st.csv_rows_written == 0);
 
-    printf("PASS: test_wigle all WiGLE-Wifi-1.4 CSV format, 2.4GHz channel, and sweep checks succeeded.\n");
+    /* Fail-the-Fail negative assertions */
+    assert(wg_init(NULL, "build/test_sd", "bad.csv") == false);
+    assert(wg_record_observation(&st, NULL, "SSID", WG_AUTH_OPEN, 6, -50, ts, false) == false);
+    assert(wg_record_observation(&st, "", "SSID", WG_AUTH_OPEN, 6, -50, ts, false) == false);
+    assert(wg_reset_session(NULL) == false);
+    assert(wg_load_account(NULL) == false);
+
+    printf("PASS: test_wigle all WiGLE-Wifi-1.4 CSV format, account sync JSON, and pass/fail checks succeeded.\n");
     return 0;
 }

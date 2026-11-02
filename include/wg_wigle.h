@@ -36,8 +36,21 @@ typedef struct {
 } wg_ap_entry_t;
 
 typedef struct {
+    char username[36];
+    char api_name[36];       /* "AID..." */
+    uint32_t rank;
+    uint32_t month_rank;
+    uint64_t discovered_wifi;
+    uint32_t total_uploads;
+    char last_sync_utc[24];
+    bool configured;
+} wg_account_t;
+
+typedef struct {
     char sd_root[WG_PATH_MAX];
     char session_csv_path[WG_PATH_MAX + 64];
+    char account_json_path[WG_PATH_MAX + 64];
+    wg_account_t account;
     double cur_lat;
     double cur_lon;
     double cur_alt_m;
@@ -48,6 +61,10 @@ typedef struct {
     int ap_count;
     wg_ap_entry_t aps[WG_MAX_APS];
 } wg_wardrive_state_t;
+
+/* Load or save <sd_root>/3ds/wigle/wigle_account.json (synced by pc_companion/wigle_sync.py) */
+bool wg_load_account(wg_wardrive_state_t *st);
+bool wg_save_account(const wg_wardrive_state_t *st);
 
 /* Map 3DS security mode to exact WiGLE v1.4 AuthMode capability string (e.g. "[WPA2-PSK-CCMP][ESS]") */
 const char *wg_auth_to_wigle_caps(wg_auth_mode_t auth);
